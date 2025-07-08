@@ -114,6 +114,7 @@ void Aquamarine::CDRMAtomicRequest::addConnector(Hyprutils::Memory::CSharedPoint
     } else
         addConnectorModeset(connector, data);
 
+    addConnectorProps(connector, data);
     addConnectorCursor(connector, data);
 
     add(connector->id, connector->props.values.crtc_id, enable ? connector->crtc->id : 0);
@@ -195,7 +196,11 @@ void Aquamarine::CDRMAtomicRequest::addConnectorModeset(Hyprutils::Memory::CShar
 
     add(connector->crtc->id, connector->crtc->props.values.mode_id, enable ? data.atomic.modeBlob : 0);
     data.atomic.blobbed = true;
+}
 
+void Aquamarine::CDRMAtomicRequest::addConnectorProps(Hyprutils::Memory::CSharedPointer<SDRMConnector> connector, SDRMConnectorCommitData& data) {
+    const auto& STATE  = connector->output->state->state();
+    const bool  enable = STATE.enabled && data.mainFB;
     if (!enable)
         return;
 
