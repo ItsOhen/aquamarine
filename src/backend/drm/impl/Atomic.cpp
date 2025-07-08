@@ -14,6 +14,8 @@ using namespace Hyprutils::Memory;
 using namespace Hyprutils::Math;
 #define SP CSharedPointer
 
+static uint8_t getMaxBPC(uint32_t drmFormat);
+
 Aquamarine::CDRMAtomicRequest::CDRMAtomicRequest(Hyprutils::Memory::CWeakPointer<CDRMBackend> backend_) : backend(backend_), req(drmModeAtomicAlloc()) {
     if (!req)
         failed = true;
@@ -109,12 +111,28 @@ void Aquamarine::CDRMAtomicRequest::addConnector(Hyprutils::Memory::CSharedPoint
             free(currentMode);
         }
 
-        if (modeDiffers)
-            addConnectorModeset(connector, data);
-    } else
-        addConnectorModeset(connector, data);
+        if (modeDiffers) {
+            add(connector->crtc->id, connector->crtc->props.values.mode_id, enable ? data.atomic.modeBlob : 0);
+            data.atomic.blobbed = true;
+        }
+    } else {
 
-    addConnectorProps(connector, data);
+        add(connector->crtc->id, connector->crtc->props.values.mode_id, enable ? data.atomic.modeBlob : 0);
+        data.atomic.blobbed = true;
+    }
+
+    if (connector->props.values.link_status)
+        add(connector->id, connector->props.values.link_status, DRM_MODE_LINK_STATUS_GOOD);
+
+    if (connector->props.values.max_bpc && connector->maxBpcBounds.at(1))
+        add(connector->id, connector->props.values.max_bpc, getMaxBPC(data.mainFB->buffer->dmabuf().format));
+
+    if (connector->props.values.Colorspace && connector->colorspace.values.BT2020_RGB)
+        add(connector->id, connector->props.values.Colorspace, STATE.wideColorGamut ? connector->colorspace.values.BT2020_RGB : connector->colorspace.values.Default);
+
+    if (connector->props.values.hdr_output_metadata && data.atomic.hdrd)
+        add(connector->id, connector->props.values.hdr_output_metadata, data.atomic.hdrBlob);
+
     addConnectorCursor(connector, data);
 
     add(connector->id, connector->props.values.crtc_id, enable ? connector->crtc->id : 0);
@@ -185,36 +203,6 @@ static uint8_t getMaxBPC(uint32_t drmFormat) {
         // FIXME? handle non-rgb formats and some weird stuff like DRM_FORMAT_AXBXGXRX106106106106
         default: return 8;
     }
-}
-
-void Aquamarine::CDRMAtomicRequest::addConnectorModeset(Hyprutils::Memory::CSharedPointer<SDRMConnector> connector, SDRMConnectorCommitData& data) {
-    if (!data.modeset)
-        return;
-
-    const auto& STATE  = connector->output->state->state();
-    const bool  enable = STATE.enabled && data.mainFB;
-
-    add(connector->crtc->id, connector->crtc->props.values.mode_id, enable ? data.atomic.modeBlob : 0);
-    data.atomic.blobbed = true;
-}
-
-void Aquamarine::CDRMAtomicRequest::addConnectorProps(Hyprutils::Memory::CSharedPointer<SDRMConnector> connector, SDRMConnectorCommitData& data) {
-    const auto& STATE  = connector->output->state->state();
-    const bool  enable = STATE.enabled && data.mainFB;
-    if (!enable)
-        return;
-
-    if (connector->props.values.link_status)
-        add(connector->id, connector->props.values.link_status, DRM_MODE_LINK_STATUS_GOOD);
-
-    if (connector->props.values.max_bpc && connector->maxBpcBounds.at(1))
-        add(connector->id, connector->props.values.max_bpc, getMaxBPC(data.mainFB->buffer->dmabuf().format));
-
-    if (connector->props.values.Colorspace && connector->colorspace.values.BT2020_RGB)
-        add(connector->id, connector->props.values.Colorspace, STATE.wideColorGamut ? connector->colorspace.values.BT2020_RGB : connector->colorspace.values.Default);
-
-    if (connector->props.values.hdr_output_metadata && data.atomic.hdrd)
-        add(connector->id, connector->props.values.hdr_output_metadata, data.atomic.hdrBlob);
 }
 
 void Aquamarine::CDRMAtomicRequest::addConnectorCursor(Hyprutils::Memory::CSharedPointer<SDRMConnector> connector, SDRMConnectorCommitData& data) {
